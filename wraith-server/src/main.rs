@@ -38,7 +38,7 @@ use crate::nats::NatsPublisher;
 use crate::routes::{health, ingest_batch, ingest_single, ready, AppState};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Load configuration
     let config = Config::from_env();
     

@@ -26,7 +26,7 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 async-nats = "0.35"
 
 # ClickHouse client
-clickhouse = { version = "0.11", features = ["inserter"] }
+clickhouse = "0.11"
 
 # Configuration
 dotenvy = "0.15"
@@ -40,8 +40,4 @@ anyhow = "1.0"
 # Async streams
 futures = "0.3"
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
+
