@@ -1,0 +1,47 @@
+# Build stage
+FROM rust:1.78-slim-bookworm AS builder
+
+WORKDIR /app
+
+# Install dependencies for building
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock* ./
+COPY wraith-common ./wraith-common
+COPY wraith-server ./wraith-server
+
+# Create dummy daemon to satisfy workspace (won't be built)
+RUN mkdir -p wraith-daemon/src && \
+    echo "fn main() {}" > wraith-daemon/src/main.rs && \
+    echo '[package]\nname = "wraith-daemon"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nwraith-common = { path = "../wraith-common" }' > wraith-daemon/Cargo.toml
+
+# Build the server
+RUN cargo build --release --package wraith-server
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/wraith-server /app/wraith-server
+
+# Create non-root user
+RUN useradd -r -s /bin/false wraith && \
+    chown -R wraith:wraith /app
+
+USER wraith
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/wraith-server"]

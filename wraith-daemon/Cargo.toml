@@ -1,0 +1,54 @@
+[package]
+name = "wraith-daemon"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lightweight telemetry daemon for InfraIQ"
+
+[[bin]]
+name = "wraith"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace shared
+wraith-common = { path = "../wraith-common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+
+# Async runtime
+tokio = { version = "1.40", features = ["full", "signal"] }
+
+# Async trait
+async-trait = "0.1"
+
+# Logging
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Directory management
+dirs = "5.0"
+
+# Process info (for parent PID checking)
+sysinfo = "0.31"
+
+# HTTP client (for sending to server)
+reqwest = { version = "0.12", features = ["json"], default-features = false, optional = true }
+
+[features]
+default = ["file-backend"]
+file-backend = []
+http-backend = ["reqwest"]
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit for better optimization
+panic = "abort"     # Abort on panic (smaller binary)
+strip = true        # Strip symbols
+
+[dev-dependencies]
+tempfile = "3.10"

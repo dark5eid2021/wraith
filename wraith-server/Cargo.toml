@@ -1,0 +1,47 @@
+[package]
+name = "wraith-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Telemetry ingestion server for Wraith"
+
+[dependencies]
+# Workspace shared
+wraith-common = { path = "../wraith-common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+
+# Web framework
+axum = "0.7"
+tokio = { version = "1.40", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# NATS messaging
+async-nats = "0.35"
+
+# ClickHouse client
+clickhouse = { version = "0.11", features = ["inserter"] }
+
+# Configuration
+dotenvy = "0.15"
+
+# Logging
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Async streams
+futures = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
