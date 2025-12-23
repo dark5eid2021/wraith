@@ -59,7 +59,7 @@ impl ClickHouseConsumer {
             ) ENGINE = MergeTree()
             ORDER BY (received_at, installation_id, event_type)
             PARTITION BY toYYYYMM(received_at)
-            TTL received_at + INTERVAL 90 DAY
+            TTL toDateTime(received_at) + INTERVAL 90 DAY
         "#, self.table);
         
         self.clickhouse_client.query(&create_table).execute().await?;
