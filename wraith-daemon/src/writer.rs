@@ -1,23 +1,22 @@
-//! Event writer trait and implementations.
+//! Event writer implementations.
 //!
-//! v1 uses a file-based stub backend. Future versions will POST to an HTTP endpoint.
+//! HTTP backend sends events to wraith-server.
+//! File backend is a fallback for offline/debugging.
 
-use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, info};
+use tracing::{debug, info, warn, error};
 
 use wraith_common::Event;
 
 /// Trait for writing events to a backend
-#[async_trait]
 pub trait EventWriter: Send + Sync {
     /// Write a batch of events
-    async fn write_events(&mut self, events: &[Event]) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn write_events(&mut self, events: &[Event]) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send;
 }
 
-/// File-based event writer (stub backend for v1)
+/// File-based event writer (fallback backend)
 pub struct FileWriter {
     path: PathBuf,
 }
@@ -37,7 +36,6 @@ impl FileWriter {
     }
 }
 
-#[async_trait]
 impl EventWriter for FileWriter {
     async fn write_events(&mut self, events: &[Event]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.ensure_dir().await?;
@@ -62,64 +60,83 @@ impl EventWriter for FileWriter {
 }
 
 /// HTTP-based event writer (for wraith-server)
-#[cfg(feature = "http-backend")]
 pub struct HttpWriter {
     endpoint: String,
     client: reqwest::Client,
 }
 
-#[cfg(feature = "http-backend")]
 impl HttpWriter {
     /// Create a new HTTP writer
     pub fn new(endpoint: String) -> Self {
-        Self {
-            endpoint,
-            client: reqwest::Client::new(),
-        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("Failed to create HTTP client");
+        
+        Self { endpoint, client }
     }
 }
 
-#[cfg(feature = "http-backend")]
-#[async_trait]
 impl EventWriter for HttpWriter {
     async fn write_events(&mut self, events: &[Event]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
         let response = self.client
             .post(&self.endpoint)
             .json(&serde_json::json!({ "events": events }))
             .send()
-            .await?;
+            .await;
         
-        if response.status().is_success() {
-            info!("Sent {} events to {}", events.len(), self.endpoint);
-            Ok(())
-        } else {
-            Err(format!("HTTP error: {}", response.status()).into())
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    info!("Sent {} events to {}", events.len(), self.endpoint);
+                    Ok(())
+                } else {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    warn!("Server returned {}: {}", status, body);
+                    Err(format!("HTTP error: {} - {}", status, body).into())
+                }
+            }
+            Err(e) => {
+                error!("Failed to send events: {}", e);
+                Err(Box::new(e))
+            }
         }
     }
 }
 
-// Stub for when HTTP backend is disabled
-#[cfg(not(feature = "http-backend"))]
-pub struct HttpWriter {
-    endpoint: String,
+/// Combined writer that tries HTTP first, falls back to file
+pub struct FallbackWriter {
+    http: Option<HttpWriter>,
+    file: FileWriter,
 }
 
-#[cfg(not(feature = "http-backend"))]
-impl HttpWriter {
-    pub fn new(endpoint: String) -> Self {
-        Self { endpoint }
+impl FallbackWriter {
+    /// Create a new fallback writer
+    pub fn new(endpoint: Option<String>, file_path: PathBuf) -> Self {
+        Self {
+            http: endpoint.map(HttpWriter::new),
+            file: FileWriter::new(file_path),
+        }
     }
 }
 
-#[cfg(not(feature = "http-backend"))]
-#[async_trait]
-impl EventWriter for HttpWriter {
+impl EventWriter for FallbackWriter {
     async fn write_events(&mut self, events: &[Event]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("HttpWriter (stub): Would send {} events to {}", events.len(), self.endpoint);
-        Ok(())
+        if let Some(ref mut http) = self.http {
+            match http.write_events(events).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    warn!("HTTP backend failed ({}), falling back to file", e);
+                }
+            }
+        }
+        
+        // Fall back to file
+        self.file.write_events(events).await
     }
 }
-
-/// Async trait needs this
-#[async_trait]
-pub trait AsyncTrait {}

@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, Mutex};
-use tracing::{error, info, Level};
+use tracing::{error, info, warn, Level};
 use uuid::Uuid;
 
 use wraith_common::{Event, EventContext, EventType, Level as EventLevel};
@@ -41,7 +41,7 @@ use wraith_common::{Event, EventContext, EventType, Level as EventLevel};
 use buffer::{run_buffer_manager, BufferCommand};
 use monitor::run_parent_monitor;
 use socket::{cleanup_socket, run_socket_listener};
-use writer::FileWriter;
+use writer::FallbackWriter;
 
 /// Command line arguments
 struct Args {
@@ -56,6 +56,9 @@ struct Args {
     
     /// Custom log path (for testing)
     log_path: Option<PathBuf>,
+    
+    /// Custom server endpoint (for testing)
+    server_endpoint: Option<String>,
 }
 
 impl Args {
@@ -66,6 +69,7 @@ impl Args {
         let mut foreground = false;
         let mut socket_path: Option<PathBuf> = None;
         let mut log_path: Option<PathBuf> = None;
+        let mut server_endpoint: Option<String> = None;
         
         let mut i = 1;
         while i < args.len() {
@@ -94,6 +98,13 @@ impl Args {
                     }
                     log_path = Some(PathBuf::from(&args[i]));
                 }
+                "--server" => {
+                    i += 1;
+                    if i >= args.len() {
+                        return Err("--server requires a URL".to_string());
+                    }
+                    server_endpoint = Some(args[i].clone());
+                }
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -116,6 +127,7 @@ impl Args {
             foreground,
             socket_path,
             log_path,
+            server_endpoint,
         })
     }
 }
@@ -132,8 +144,13 @@ OPTIONS:
     --foreground, -f      Run in foreground (don't daemonize)
     --socket <PATH>       Custom socket path (default: ~/.infraiq/wraith.sock)
     --log <PATH>          Custom log path (default: ~/.infraiq/events.log)
+    --server <URL>        Custom server endpoint (default: https://telemetry.autonops.io/events)
     --help, -h            Show this help message
     --version, -V         Show version
+
+ENVIRONMENT:
+    INFRAIQ_TELEMETRY=false    Disable telemetry entirely
+    WRAITH_SERVER_URL          Override server endpoint
 
 EXAMPLE:
     # Started by InfraIQ (not typically run directly)
@@ -196,6 +213,12 @@ async fn main() {
         }
     };
     
+    // Check if telemetry is disabled
+    if !config::is_telemetry_enabled() {
+        eprintln!("Telemetry is disabled (INFRAIQ_TELEMETRY=false)");
+        std::process::exit(0);
+    }
+    
     // Setup logging
     let log_level = if args.foreground { Level::DEBUG } else { Level::INFO };
     tracing_subscriber::fmt()
@@ -215,11 +238,21 @@ async fn main() {
         .or_else(config::get_events_log_path)
         .expect("Could not determine log path");
     
+    // Resolve server endpoint
+    let server_endpoint = args.server_endpoint
+        .or_else(config::get_server_endpoint);
+    
     info!("Socket: {}", socket_path.display());
     info!("Events log: {}", log_path.display());
     
-    // Create writer
-    let writer = Arc::new(Mutex::new(FileWriter::new(log_path)));
+    if let Some(ref endpoint) = server_endpoint {
+        info!("Server endpoint: {}", endpoint);
+    } else {
+        warn!("No server endpoint configured, using file backend only");
+    }
+    
+    // Create writer with HTTP + file fallback
+    let writer = Arc::new(Mutex::new(FallbackWriter::new(server_endpoint, log_path)));
     
     // Create buffer command channel
     let (cmd_tx, cmd_rx) = mpsc::channel::<BufferCommand>(100);

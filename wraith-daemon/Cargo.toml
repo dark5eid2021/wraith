@@ -23,9 +23,6 @@ tracing = { workspace = true }
 # Async runtime
 tokio = { version = "1.40", features = ["full", "signal"] }
 
-# Async trait
-async-trait = "0.1"
-
 # Logging
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -36,11 +33,10 @@ dirs = "5.0"
 sysinfo = "0.31"
 
 # HTTP client (for sending to server)
-reqwest = { version = "0.12", features = ["json"], default-features = false, optional = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 [features]
-default = ["file-backend"]
-file-backend = []
-http-backend = ["reqwest"]
+default = []
 
-
+[dev-dependencies]
+tempfile = "3.10"

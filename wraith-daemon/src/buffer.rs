@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 use wraith_common::Event;
 
 use crate::config;
-use crate::writer::EventWriter;
+use crate::writer::{EventWriter, FallbackWriter};
 
 /// Commands that can be sent to the buffer manager
 #[derive(Debug)]
@@ -37,12 +37,12 @@ pub struct EventBuffer {
     max_events: usize,
     
     /// Writer for persisting events
-    writer: Arc<Mutex<dyn EventWriter + Send>>,
+    writer: Arc<Mutex<FallbackWriter>>,
 }
 
 impl EventBuffer {
     /// Create a new event buffer
-    pub fn new(writer: Arc<Mutex<dyn EventWriter + Send>>) -> Self {
+    pub fn new(writer: Arc<Mutex<FallbackWriter>>) -> Self {
         Self {
             events: Vec::with_capacity(config::BUFFER_MAX_EVENTS),
             max_events: config::BUFFER_MAX_EVENTS,
@@ -84,6 +84,7 @@ impl EventBuffer {
     }
     
     /// Get current buffer size
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.events.len()
     }
@@ -97,7 +98,7 @@ impl EventBuffer {
 /// Runs the buffer manager loop
 pub async fn run_buffer_manager(
     mut cmd_rx: mpsc::Receiver<BufferCommand>,
-    writer: Arc<Mutex<dyn EventWriter + Send>>,
+    writer: Arc<Mutex<FallbackWriter>>,
 ) {
     let mut buffer = EventBuffer::new(writer);
     let mut flush_interval = interval(config::get_flush_interval());

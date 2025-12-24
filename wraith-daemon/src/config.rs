@@ -9,7 +9,7 @@ pub const INFRAIQ_DIR: &str = ".infraiq";
 /// Socket filename
 pub const SOCKET_NAME: &str = "wraith.sock";
 
-/// Events log filename (stub backend)
+/// Events log filename (fallback backend)
 pub const EVENTS_LOG: &str = "events.log";
 
 /// Installation ID filename
@@ -26,6 +26,9 @@ pub const PARENT_CHECK_INTERVAL_SECS: u64 = 5;
 
 /// Idle timeout after parent exits (5 minutes)
 pub const IDLE_TIMEOUT_SECS: u64 = 300;
+
+/// Default server endpoint for telemetry
+pub const DEFAULT_SERVER_ENDPOINT: &str = "https://telemetry.autonops.io/events";
 
 /// Get the InfraIQ directory path (~/.infraiq)
 pub fn get_infraiq_dir() -> Option<PathBuf> {
@@ -60,4 +63,28 @@ pub fn get_parent_check_interval() -> Duration {
 /// Get idle timeout as Duration
 pub fn get_idle_timeout() -> Duration {
     Duration::from_secs(IDLE_TIMEOUT_SECS)
+}
+
+/// Get the server endpoint from environment or default
+pub fn get_server_endpoint() -> Option<String> {
+    // Check if telemetry is disabled
+    if let Ok(val) = std::env::var("INFRAIQ_TELEMETRY") {
+        if val.to_lowercase() == "false" || val == "0" {
+            return None;
+        }
+    }
+    
+    // Use custom endpoint or default
+    Some(
+        std::env::var("WRAITH_SERVER_URL")
+            .unwrap_or_else(|_| DEFAULT_SERVER_ENDPOINT.to_string())
+    )
+}
+
+/// Check if telemetry is enabled
+pub fn is_telemetry_enabled() -> bool {
+    if let Ok(val) = std::env::var("INFRAIQ_TELEMETRY") {
+        return val.to_lowercase() != "false" && val != "0";
+    }
+    true
 }
